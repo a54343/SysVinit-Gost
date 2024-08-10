@@ -190,22 +190,25 @@ function Uninstall_ct() {
 }
 function check_port() {
   port=$1
-  process=$(lsof -i:$port | grep LISTEN | awk '{print $2}')
+  process=$(ss -ltnp | grep ":$port " | awk '{print $6}' | cut -d'"' -f2)
   if [ -n "$process" ]; then
     echo "Port $port is occupied by process $process"
     read -p "Do you want to kill this process and continue? [y/n] " answer
     if [ "$answer" == "y" ]; then
-      kill -9 $process
+      kill -9 $(ss -ltnp | grep ":$port " | awk '{print $6}' | cut -d',' -f2 | cut -d'=' -f2)
       echo "Process $process killed"
+      sleep 1  
     else
       echo "Aborting"
       exit 1
     fi
   fi
 }
-
 function Start_ct() {
-  check_port $(grep -oP '(?<="tcp://:)\d+' /etc/gost/config.json | head -1)
+  ports=$(grep -oP '(?<="tcp://:)\d+' /etc/gost/config.json)
+  for port in $ports; do
+    check_port $port
+  done
   /etc/init.d/gost start
   echo "已启动"
 }
@@ -215,7 +218,10 @@ function Restart_ct() {
   confstart
   writeconf
   conflast
-  check_port $(grep -oP '(?<="tcp://:)\d+' /etc/gost/config.json | head -1)
+  ports=$(grep -oP '(?<="tcp://:)\d+' /etc/gost/config.json)
+  for port in $ports; do
+    check_port $port
+  done
   /etc/init.d/gost restart
   echo "已重读配置并重启"
 }
