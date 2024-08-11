@@ -188,26 +188,37 @@ function Uninstall_ct() {
   fi
   echo "gost已经成功删除"
 }
-function check_port() {
+function check_and_kill_port() {
   port=$1
-  process=$(ss -ltnp | grep ":$port " | awk '{print $6}' | cut -d'"' -f2)
-  if [ -n "$process" ]; then
-    echo "Port $port is occupied by process $process"
-    read -p "Do you want to kill this process and continue? [y/n] " answer
-    if [ "$answer" == "y" ]; then
-      kill -9 $(ss -ltnp | grep ":$port " | awk '{print $6}' | cut -d',' -f2 | cut -d'=' -f2)
-      echo "Process $process killed"
-      sleep 1  
-    else
-      echo "Aborting"
-      exit 1
+  max_attempts=5
+  wait_time=2
+
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    process=$(ss -ltnp | grep ":$port " | awk '{print $6}' | cut -d'"' -f2)
+    if [ -z "$process" ]; then
+      echo "Port $port is now free"
+      return 0
     fi
-  fi
+
+    echo "Attempt $attempt: Port $port is occupied by process $process"
+    kill -9 $(ss -ltnp | grep ":$port " | awk '{print $6}' | cut -d',' -f2 | cut -d'=' -f2)
+    sleep $wait_time
+    if [ $wait_time -lt 10 ]; then
+      wait_time=$((wait_time * 2))
+    fi
+  done
+
+  echo "Failed to free port $port after $max_attempts attempts"
+  return 1
 }
+
 function Start_ct() {
   ports=$(grep -oP '(?<="tcp://:)\d+' /etc/gost/config.json)
   for port in $ports; do
-    check_port $port
+    if ! check_and_kill_port $port; then
+      echo "Unable to start gost due to port $port being occupied"
+      exit 1
+    fi
   done
   /etc/init.d/gost start
   echo "已启动"
@@ -220,7 +231,10 @@ function Restart_ct() {
   conflast
   ports=$(grep -oP '(?<="tcp://:)\d+' /etc/gost/config.json)
   for port in $ports; do
-    check_port $port
+    if ! check_and_kill_port $port; then
+      echo "Unable to restart gost due to port $port being occupied"
+      exit 1
+    fi
   done
   /etc/init.d/gost restart
   echo "已重读配置并重启"
